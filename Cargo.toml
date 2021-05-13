@@ -8,5 +8,6 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0"
-base64 = "0.13.0"
 byteorder = "1.4"
+hex = "0.4.3"
+structopt = "0.3"

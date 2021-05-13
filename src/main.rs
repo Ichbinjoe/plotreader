@@ -1,8 +1,7 @@
 use anyhow::{anyhow, Context};
 use byteorder::ByteOrder;
-use std::env;
-use std::io::{Read, Write};
-use std::mem::MaybeUninit;
+use std::io::Read;
+use structopt::StructOpt;
 
 struct PlotInfo {
     plot_id: [u8; 32],
@@ -63,18 +62,77 @@ fn read_file(name: &str) -> Result<PlotInfo, anyhow::Error> {
     })
 }
 
+enum Pool<'a> {
+    PublicKey(&'a [u8]),
+    PoolContractHash(&'a [u8])
+}
+
+const PK_MEMO_LEN: usize = 48 + 48 + 32;
+const PH_MEMO_LEN: usize = 32 + 48 + 32;
+
+fn decode_memo<'a>(memo: &'a [u8]) -> Option<(Pool<'a>, &'a [u8], &'a [u8])> {
+    match memo.len() {
+        PK_MEMO_LEN => {
+            Some((Pool::PublicKey(&memo[0..48]), &memo[48..96], &memo[96..128]))
+        },
+        PH_MEMO_LEN => {
+            Some((Pool::PoolContractHash(&memo[0..32]), &memo[32..80], &memo[80..102]))
+        },
+        _ => None
+    }
+}
+
+fn display_plot_big(name: &str, p: &PlotInfo) {
+    println!("=============================");
+    println!("Filename: {}:", name);
+    println!("Format: {}", p.format_description);
+    println!("K: {}", p.k);
+    println!("Plot ID: {}", hex::encode(p.plot_id));
+    println!("Memo:");
+    match decode_memo(&p.memo) {
+        Some((pool, farmer, local)) => {
+            match pool {
+                Pool::PublicKey(k) => {
+                    println!("  Pool pk: {}", hex::encode(k));
+                },
+                Pool::PoolContractHash(ph) => {
+                    println!("  Pool contract hash: {}", hex::encode(ph));
+                }
+            }
+            println!("  Farmer pk: {}", hex::encode(farmer));
+            println!("  Local sk: {}", hex::encode(local));
+        },
+        None => {
+            println!("  Raw: {}", hex::encode(&p.memo));
+        }
+    }
+    println!("=============================");
+}
+
+fn display_plot_row(name: &str, p: &PlotInfo) {
+    println!("{} {} {} {} {}", name, p.format_description, p.k, hex::encode(p.plot_id), hex::encode(&p.memo));
+}
+
+#[derive(StructOpt)]
+#[structopt(name="plotreader", about="Reads chia plot headers")]
+struct Opts {
+    #[structopt(short, long)]
+    short: bool,
+
+    files: Vec<String>
+}
+
 fn main() {
-    for arg in env::args().skip(1) {
+    let opt = Opts::from_args();
+
+    for arg in opt.files {
         match read_file(&arg) {
             Ok(plot) => {
-                println!(
-                    "{} {} {} {} {}",
-                    &arg,
-                    plot.format_description,
-                    plot.k,
-                    base64::encode(&plot.plot_id),
-                    base64::encode(&plot.memo)
-                );
+                if opt.short {
+                    display_plot_row(&arg, &plot);
+                } else {
+                    display_plot_big(&arg, &plot);
+                }
             }
             Err(e) => {
                 eprintln!("error processing {}: {}", &arg, e);
